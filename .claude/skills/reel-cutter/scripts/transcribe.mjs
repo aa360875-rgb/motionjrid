@@ -88,7 +88,11 @@ for (const w of words) {
 }
 if (cur) lines.push(cur);
 
-const doc = { video: { file: input, ...info }, engine: `whisper.cpp ${basename(model)}`, language, words, lines };
+const doc = {
+  language_code: language, audio_duration_secs: +info.duration.toFixed(3), text: words.map(w => w.text).join(' '),
+  video: { file: input, ...info }, engine: `whisper.cpp ${basename(model)}`, language,
+  words: words.map(w => ({ ...w, type: 'word' })), lines,
+};
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, JSON.stringify(doc, null, 1));
 for (const l of lines) console.log(`${fmt(l.start).padStart(8)} - ${fmt(l.end).padStart(8)}  ${l.text}`);

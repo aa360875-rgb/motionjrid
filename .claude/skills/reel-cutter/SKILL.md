@@ -88,6 +88,10 @@ Give the MP4 path, its length, and the table of what is in it. Then offer:
 - **Graphics on top:** `talking-head-b-roll` or `motion-director` moves on the finished reel.
 - **Another reel** from the unused ideas.
 
+## Working with Herk Edit Kit
+
+`transcript.json` is already in the Herk Edit Kit format (`text`, `audio_duration_secs`, `words[{text,start,end,type}]` in source seconds). Inside a herk-edit-kit checkout, use it in place of ElevenLabs: hand it to `cut-silences` / `cut-mistakes` / `short-form-edit` as the source transcript, so no paid transcription is needed.
+
 ## Rules
 
 - Never invent speech, never reorder words inside a sentence, never cut inside a word.

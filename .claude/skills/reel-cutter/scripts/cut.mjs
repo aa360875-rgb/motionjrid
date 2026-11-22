@@ -124,4 +124,18 @@ if (words) {
   console.log(mapped.map(w => w.text).join(' '));
 }
 const real = probe(out).duration;
+if (words) {
+  // Same transcript in talking-head-b-roll's transcript.json shape, so it never has to transcribe the reel again.
+  const ws = JSON.parse(readFileSync(base + '.words.json', 'utf8')).words;
+  const lines = [];
+  let cur = null;
+  for (const w of ws) {
+    if (!cur || w.start - cur.end > 0.6 || /[.!?؟…]$/.test(cur.text)) { if (cur) lines.push(cur); cur = { start: w.start, end: w.end, text: w.text }; }
+    else { cur.end = w.end; cur.text += ' ' + w.text; }
+  }
+  if (cur) lines.push(cur);
+  writeFileSync(base + '.transcript.json', JSON.stringify({
+    video: { file: out, width: W, height: H, fps, duration: +real.toFixed(3) }, engine: 'reel-cutter (re-timed)', words: ws, lines,
+  }, null, 1));
+}
 console.log(`\n${out}\n${W}x${H} ${fps}fps, ${fmt(real)} (${cuts.length} cuts)`);

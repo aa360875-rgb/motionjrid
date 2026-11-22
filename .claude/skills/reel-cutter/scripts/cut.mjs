@@ -9,7 +9,19 @@
 // and the pause is removed. Writes <out>.cuts.json and, with a transcript, <out>.words.json re-timed to the reel.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, dirname, join, basename, extname } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { args, must, probe, fmt } from './lib.mjs';
+
+// The filter graph goes inline (works on every ffmpeg). Only a very long graph uses a file: ffmpeg 7+ reads it
+// with -/filter_complex, older versions with -filter_complex_script (removed in newer releases).
+function graphArgs(chainsList, file) {
+  const inline = chainsList.join(';');
+  writeFileSync(file, chainsList.join(';\n'));
+  if (inline.length < 28000) return ['-filter_complex', inline];
+  const m = (spawnSync('ffmpeg', ['-version'], { encoding: 'utf8' }).stdout || '').match(/ffmpeg version n?(\d+)/);
+  return (m ? Number(m[1]) : 7) >= 7 ? ['-/filter_complex', file] : ['-filter_complex_script', file];
+}
+
 
 const { flags, pos } = args();
 const [videoArg, edlArg, outArg] = pos;
@@ -106,8 +118,7 @@ chains.push(`[ac]loudnorm=I=${lufs}:TP=-1.0:LRA=11,aresample=48000[ao]`);
 
 mkdirSync(dirname(out), { recursive: true });
 const graphFile = join(dirname(out), basename(out, extname(out)) + '.filter.txt');
-writeFileSync(graphFile, chains.join(';\n'));
-must('ffmpeg', ['-v', 'error', '-stats', '-y', ...inputs, '-filter_complex_script', graphFile, '-map', '[vc]', '-map', '[ao]',
+must('ffmpeg', ['-v', 'error', '-stats', '-y', ...inputs, ...graphArgs(chains, graphFile), '-map', '[vc]', '-map', '[ao]',
   '-c:v', 'libx264', '-preset', 'medium', '-crf', String(flags.crf ?? 18), '-pix_fmt', 'yuv420p',
   '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', out], { stdio: ['ignore', 'inherit', 'pipe'] });
 

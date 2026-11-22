@@ -14,6 +14,17 @@ import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { resolve, dirname, join, basename, extname, isAbsolute } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+// The filter graph goes inline (works on every ffmpeg). Only a very long graph uses a file: ffmpeg 7+ reads it
+// with -/filter_complex, older versions with -filter_complex_script (removed in newer releases).
+function graphArgs(chainsList, file) {
+  const inline = chainsList.join(';');
+  writeFileSync(file, chainsList.join(';\n'));
+  if (inline.length < 28000) return ['-filter_complex', inline];
+  const m = (spawnSync('ffmpeg', ['-version'], { encoding: 'utf8' }).stdout || '').match(/ffmpeg version n?(\d+)/);
+  return (m ? Number(m[1]) : 7) >= 7 ? ['-/filter_complex', file] : ['-filter_complex_script', file];
+}
+
+
 const argv = process.argv.slice(2);
 const flags = {}, pos = [];
 for (let i = 0; i < argv.length; i++) {
@@ -111,9 +122,8 @@ if (flags.overlay) {
 chains.push(`${base}format=yuv420p[vout]`);
 
 const graph = join(dirname(out), basename(out, extname(out)) + '.broll-filter.txt');
-writeFileSync(graph, chains.join(';\n'));
 console.log(`${cuts.length} cutaways, grade ${gradeMode}${flags['grade-face'] ? ' (face too)' : ''}, punch-in ${flags.cuts ? punch : 'off'}`);
-const r = run('ffmpeg', ['-v', 'error', '-stats', '-y', ...inputs, '-filter_complex_script', basename(graph), '-map', '[vout]', '-map', '0:a?',
+const r = run('ffmpeg', ['-v', 'error', '-stats', '-y', ...inputs, ...graphArgs(chains, graph), '-map', '[vout]', '-map', '0:a?',
   '-c:v', 'libx264', '-preset', 'medium', '-crf', String(flags.crf ?? 18), '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart', out],
   { cwd: dirname(out), stdio: ['ignore', 'inherit', 'pipe'] });
 if (r.status !== 0) { console.error(r.stderr); process.exit(1); }

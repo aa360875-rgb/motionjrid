@@ -79,6 +79,8 @@ fs.copyFileSync(path.join(SKILL, "templates", "moves", "_lib", "move.js"), path.
 const vars = { ...B.tokens, ...files, bg, aspect, ...JSON.parse(opt("--vars", "{}")) };
 const dur = +(vars.duration || meta.duration);
 let html = fs.readFileSync(path.join(MD, "index.html"), "utf8").split("{{W}}").join(W).split("{{H}}").join(H).split("{{DUR}}").join(dur);
+const vendorGsap = path.join(SKILL, "templates", "vendor", "gsap.min.js");
+if (fs.existsSync(vendorGsap)) { fs.copyFileSync(vendorGsap, path.join(A, "gsap.min.js")); html = html.split("https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js").join("assets/gsap.min.js"); }
 fs.writeFileSync(path.join(work, "index.html"), html);
 fs.writeFileSync(path.join(work, "hyperframes.json"), JSON.stringify({ paths: { assets: "assets" } }));
 fs.writeFileSync(path.join(work, "meta.json"), JSON.stringify({ id: `move-${id}`, name: meta.name }));

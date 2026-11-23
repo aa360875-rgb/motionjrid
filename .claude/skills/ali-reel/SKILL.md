@@ -1,73 +1,72 @@
 ---
 name: ali-reel
-description: One-request reel factory for Ali Tech. Takes a long raw talking-to-camera recording (usually Iraqi Arabic, 5-20 minutes) and delivers a finished 9:16 reel - cut tight with reel-cutter, the user's own filmed B-roll laid over the voice with grading and transitions, optional motion graphics with talking-head-b-roll, and Arabic-correct word-by-word captions in the Ali Tech colours - stopping only to approve the cut plan. Use when the user says "اعملي ريل", "منتجلي هذا الفيديو", "make a reel from my video", "edit this video", hands over a raw recording, or asks for the whole edit at once. For only cutting use reel-cutter; for only graphics use talking-head-b-roll or motion-director.
+description: Reel production pipeline for Ali Tech, run as a director in four approved phases. Takes a long raw talking-to-camera recording (usually Iraqi Arabic, 5-20 minutes) plus any B-roll clips filmed for it, picks the best take of every repeated line, builds the script and hook, shows a storyboard for approval, then cuts (reel-cutter), lays the user's own B-roll over the voice with grading and transitions, adds motion graphics, and burns Arabic-correct right-to-left captions in the Thmanyah font and the Ali Tech colours. Use when the user says "منتجلي", "اعملي ريل", "make a reel", "edit this video", or hands over a raw recording. For cutting only use reel-cutter; for graphics only use talking-head-b-roll or motion-director.
 ---
 
 # ali-reel
 
-The user records long, unscripted takes and wants finished vertical reels without opening an editor. You run the whole chain and stop for approval once, at the cut plan. Talk to the user in Iraqi Arabic, short and plain; keep tool names in English.
+You are the director and the motion-graphics developer. The prompt is 10% of the result; the structure, reference files and rules are the rest, so follow this file and the project's own files exactly. Talk to the user in Iraqi Arabic, short and plain; keep tool names in English.
 
-Skills this uses (all must be installed in `~/.claude/skills`): `reel-cutter` (required), `talking-head-b-roll` (graphics, optional), `motion-director` (brand file, optional). Scripts here: `scripts/captions.mjs`. Fonts here: `fonts/` (Cairo, IBM Plex Sans Arabic, Tajawal, all OFL).
+Skills used (in `~/.claude/skills`): `reel-cutter` (required), `talking-head-b-roll` (graphics), `motion-director` (brand), `hyperframes-registry` (ready transitions, titles and effects, only when the user asks for one). Scripts here: `scripts/captions.mjs`, `scripts/broll.mjs`. Bundled fallback fonts: `fonts/` (Cairo, IBM Plex Sans Arabic, Tajawal; OFL).
 
-## Defaults (do not ask about these)
+## Hard rules
 
-- Language Iraqi Arabic, format 9:16, length 45-60 s, captions on, graphics `light`.
-- Brand colours from `~/motion-director/profile.json` -> its brand's `brand.json`; otherwise near-black, warm cream and lime.
-- Output folder: `<video name>-reel/` next to the video. Never move or modify the original recording.
+- Never modify, move or delete the raw recordings or clips. Work in `<video name>-reel/vN/` (a new `vN` for every full re-edit); temp files go in `<out>/tmp/`.
+- Never claim a step is done or a file exists until you have run it and checked the file (open stills, check sheets, ffprobe).
+- When a file, tool or font is missing, or something is ambiguous enough to change the result, say so and ask one short question. Do not guess and do not substitute silently.
+- Only the user's own words. Never invent lines, facts or claims; never reorder words inside a sentence.
+- Stop at the two approval gates (end of phase A and phase B). Do nothing the user did not approve; extra effects only when asked.
+- Read the project's `CLAUDE.md` and `STYLE-GUIDE.md` (in the video's folder or any parent, usually `~/Videos`) before phase A; they override the defaults below.
 
-## 1. Find the video
+## Phase 0. Inventory (before anything else)
 
-If the user names a file, use it. If not, list the 6 newest `.mp4`/`.mov` files under `~/Videos` (recursively) and `~/Desktop`, with size, length (ffprobe) and date, and ask which one with the question tool. Ignore files under 30 seconds and exports that are clearly already edited (names containing `reel`, `final`, `export`).
+Report in one short table: the main recording (length, resolution, fps, Log or normal), every other clip (count, length, resolution), `STYLE-GUIDE.md`/`CLAUDE.md` found or not, the brand (`~/motion-director/profile.json`), the font check, and tools (`ffmpeg -version` major number, Whisper via `node <reel-cutter>/scripts/transcribe.mjs --check`, Chrome, Node).
 
-## 2. Cut (reel-cutter)
+Font check: `node <skill>/scripts/captions.mjs <video> <any words.json> x.mp4 --font thmanyah --no-burn` finds Thmanyah in the project, its `fonts/` folder, Downloads or the system fonts and prints the file it will use. If it reports web fonts only (.woff/.woff2) or nothing, tell the user and ask for the .ttf/.otf path; until then say clearly that captions would fall back to Cairo.
 
-Follow the `reel-cutter` skill sections 0-4 exactly: setup check, transcribe (`--language ar`; reuse `transcript.json` if it already exists), read like an editor, propose. In the same approval message also show:
+## Phase A. Takes, script and hook → GATE 1
 
-- Graphics level: `none` / `light` (2-4 overlays at the strongest moments) / `full` (talking-head-b-roll's full plan). Default `light`.
-- Any words Whisper clearly misheard, with your correction, so captions come out right.
+1. Transcribe with reel-cutter (`--language ar`), reusing `transcript.json` if it exists.
+2. Group repeated attempts of the same line (same idea said 2+ times). For each group list the takes with times and pick the best: complete sentence, no stumble or filler restart, confident delivery, clean ending. You cannot hear audio: judge from the words, pauses and completeness, say that you judged from the transcript, and export the competing takes as short audio files when the choice is close so the user can listen.
+3. Build the script from the chosen takes: the order that tells the story, repetition and hesitation removed, the user's own phrasing kept.
+4. Hook: the strongest opening line that already exists in the footage (usually a question, a pain point or a bold claim). Offer 2-3 alternatives when there is more than one strong angle, each with its time.
+5. List words Whisper clearly misheard and your corrections.
 
-**WAIT for approval.** Then cut with `cut.mjs ... --transcript transcript.json --max-gap 0.35 --aspect 9:16`. It writes `reel.mp4`, `reel.words.json` (captions) and `reel.transcript.json` (graphics).
+Show: the takes table (group, takes, chosen, why), the script in order with times and estimated length, the hook options. **Wait for approval.**
 
-## 3a. The user's own B-roll footage (when they filmed cutaways)
+## Phase B. Storyboard → GATE 2
 
-If the folder holds clips besides the main recording (desk, PC, keyboard, notebook...), they are cutaways: they cover the speaker for 2-3 s while the voice carries on. Never use talking-head-b-roll for this; use `scripts/broll.mjs`.
+One table, one row per beat, in reel order: time in reel, spoken line, what is on screen (speaker / which B-roll clip and seconds / graphic), transition into it, on-screen text. Include:
 
-1. Look at every clip: one frame each in a contact sheet, plus a 1-frame-per-second strip for clips where the moment matters (a page opening, writing). Note each clip's steady seconds.
-2. Map clips to lines from `reel.words.json` times (reel time, not source time). Keep the speaker on screen for the hook, opinions and the call to action. Show the user the table: line, clip, seconds used. Wait for yes.
-3. Write `<out>/broll.json`: `{ "cutaways": [ { "clip": "../C007.MP4", "at": 3.2, "dur": 2.5, "from": 0.4, "note": "typing" } ] }` where `at` is the reel second it starts, `from` the second inside the clip, paths relative to the json.
-4. Render, from the reel and its cut list:
+- B-roll mapping, when clips exist: look at every clip (contact sheet with one frame each, plus a 1 fps strip for clips where a moment matters, like a page opening or writing) and pick steady seconds. Keep the speaker on screen for the hook, opinions and the call to action. Cutaways 2-3 s.
+- Graphics: which lines get one (numbers, product names, lists), their text, entry direction.
+- Grade: Log or normal footage, and whether a camera LUT is available.
+- Captions: font actually found, alignment, words per line.
 
-       node <skill>/scripts/broll.mjs <out>/reel.mp4 <out>/broll.json <out>/film.mp4 --cuts <out>/reel.cuts.json --grade log
+**Wait for approval.** Changes go back into the table until the user says yes.
 
-   - `--grade log` for flat grey Log footage (default), `soft` for normal footage, `--lut camera.cube` when the user has their camera's LUT (best). Add `--grade-face` only if the main recording is also Log.
-   - Transitions: every cutaway fades in and out over 0.12 s (`--fade`), and the speaker's jump cuts alternate a 1.1x punch-in (`--punch 1.1`, `--punch 1` to turn it off).
-   - `--overlay graphics.mov` lays a transparent graphics render (from step 3b) on top in the same pass.
-5. **Open `film.check.jpg` and look at it.** It holds one frame from the middle of every cutaway, in order. If any frame shows the speaker instead of the clip, the cutaway is missing: fix and re-render. Never tell the user cutaways are in the video without having looked at this sheet.
+## Phase C. Execute
 
-## 3b. Graphics (talking-head-b-roll), unless `none`
+1. Cut: `node <reel-cutter>/scripts/cut.mjs <video> <out>/edl.json <out>/reel.mp4 --transcript transcript.json --max-gap 0.35 --aspect 9:16`. Writes `reel.mp4`, `reel.words.json`, `reel.transcript.json`, `reel.cuts.json`.
+2. Graphics (when planned): in `<out>/gfx/`, copy `reel.transcript.json` as `transcript.json` and follow talking-head-b-roll's build/render steps, **skipping its transcribe step**. Render the graphics alone with alpha (`graphics.mov`). Arabic on canvas: load the same font as the captions with `@font-face`, `ctx.direction = 'rtl'`, right-aligned text unless a centred title was asked for, elements enter from the right and lists build right to left, progress bars fill right to left. Keep graphics out of the caption band (62-80% of the height). Look at a still of every Arabic graphic before rendering.
+3. B-roll, grade and transitions:
 
-Work in `<out>/broll/`. Copy `reel.mp4` there as `talk.mp4` and `reel.transcript.json` as `transcript.json`. **Skip its transcribe step** (it does not work on Windows and the transcript already exists). Then follow its plan/build/render steps with these constraints:
+       node <skill>/scripts/broll.mjs <out>/reel.mp4 <out>/broll.json <out>/film.mp4 --cuts <out>/reel.cuts.json --grade log [--lut cam.cube] [--overlay <out>/gfx/graphics.mov]
 
-- `light`: only B (overlay) treatments, 2-4 of them, on numbers, product/app names and lists. `full`: its normal A/B/C plan.
-- Keep every overlay out of the caption band (y from 62% to 80% of the height).
-- Colours from the brand. Arabic text on canvas: load `fonts/Cairo_900Black.ttf` with `@font-face`, set `ctx.direction = 'rtl'` and `textAlign = 'right'` (or centre), and look at a still of every Arabic graphic before rendering. If Arabic shaping looks wrong in any still, switch that graphic's text to English or to a number.
-- It needs `npm i playwright-core` in `broll/` once, and Chrome.
+   `broll.json`: `{ "cutaways": [ { "clip": "../../C007.MP4", "at": 3.2, "dur": 2.5, "from": 0.4, "note": "typing" } ] }`, `at` in reel seconds, `from` inside the clip, paths relative to the json. Fades 0.12 s (`--fade`), alternating 1.1x punch-in on the speaker's jump cuts (`--punch`). `--grade log` for flat Log footage, `soft` for normal, `--lut` when the camera LUT exists (best); `--grade-face` only if the main recording is Log too. Without clips or graphics, skip this step and use `reel.mp4` as `film.mp4`.
+4. **Open `film.check.jpg`**: one frame from the middle of every cutaway. Any frame showing the speaker instead of the clip means a missing cutaway: fix before going on.
+5. Captions, last layer: fix Whisper's mistakes in a copy of `reel.words.json` (text only), then
 
-Render `film.mp4` (reel + graphics, original sound). That file feeds the captions step. When step 3a also ran, render the graphics alone as `graphics.mov` (alpha) instead and pass it to `broll.mjs --overlay`, so graphics sit above the cutaways.
+       node <skill>/scripts/captions.mjs <out>/film.mp4 <words.json> <out>/final.mp4 --font thmanyah [--align center|right] [--words 3] [--y 0.70]
 
-## 4. Captions (last layer)
+   `--font thmanyah` finds the installed Thmanyah, `--font-file <path>` uses an exact file; without either it uses bundled Cairo. Rendering is libass with complex shaping and a right-to-left base direction, so letters join, words keep their order and runs like "Windows 11" stay whole. Centred captions are the reel convention; `--align right` when the style guide asks for it. Writes `final.srt` too.
 
-Before burning, fix Whisper's mistakes in a copy of `reel.words.json` (text only, never times), keeping the user's dialect spelling. Then:
+## Phase D. Review, then deliver
 
-    node <skill>/scripts/captions.mjs <film.mp4 or reel.mp4> <words.json> <out>/final.mp4
+- `node <reel-cutter>/scripts/contact.mjs <out>/final.mp4` and look: good first frame, every cutaway present, graded clips matching the speaker, no caption over a graphic, speaker in frame.
+- Stills at 3 caption moments: letters joined, words in order, mixed Arabic/English readable, nothing cut at the edges. Caption chunks stay on screen at least 0.6 s.
+- Report only what you saw. Deliver in Arabic: path of `final.mp4`, length, what is in it, the font actually used, Whisper corrections, extra files (`reel.mp4` clean, `final.srt`), and anything planned that is not in the video. Remind the user you could not listen to the audio.
 
-Options: `--font cairo|plex|tajawal` (default cairo), `--words 3` per chunk, `--y 0.70` vertical position, `--accent #hex`. It renders through libass with complex shaping, so Arabic letters join and lines run right to left; Latin runs such as "Windows 11" stay together. It also writes `final.srt` for DaVinci Resolve.
+## Later edits
 
-## 5. Check, then deliver
-
-- `node <reel-cutter>/scripts/contact.mjs <out>/final.mp4` and look at the sheet: first frame is a good one, no caption collides with a graphic, the speaker stays in frame.
-- Grab 3 stills at caption moments (`ffmpeg -ss <t> -i final.mp4 -frames:v 1`) and look: letters joined, words in the right order, nothing cut off at the edges.
-- Fix and re-run the step that failed; do not hand over a file you have not looked at.
-- Only list in the summary what you saw in the frames: cutaways (from `film.check.jpg`), grade, graphics, captions. If something planned is not visible, say so plainly instead of claiming it.
-
-Deliver in Arabic: path of `final.mp4`, its length, a 3-line summary of what is in it, the list of Whisper corrections you made, and the extra files (`reel.mp4` clean without captions, `final.srt`). Then offer the next reel from the unused ideas in the same recording.
+A change at a specific second, a different hook, a caption fix, a swapped clip: change only that (edit the EDL, `broll.json` or the words file), re-run from the first affected step, render into the same `vN` (keep the previous `final.mp4` as `final-prev.mp4`), and check the changed seconds plus one second either side.

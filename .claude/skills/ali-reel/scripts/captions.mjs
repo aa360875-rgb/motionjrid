@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Word-by-word captions, Arabic-correct (joined letters, right-to-left), burned into a video with ffmpeg/libass.
 //
-//   node captions.mjs <video> <words.json> <out.mp4> [--font cairo|plex|tajawal] [--words 3] [--y 0.70]
-//                     [--size 0.05] [--text #F3EBDD] [--outline #0E0E0E] [--accent #C6F432] [--brand <brand dir>]
+//   node captions.mjs <video> <words.json> <out.mp4> [--font cairo|plex|tajawal|thmanyah] [--font-file f.otf] [--align center|right]
+//                     [--words 3] [--y 0.70] [--size 0.05] [--text #F3EBDD] [--outline #0E0E0E] [--accent #C6F432] [--brand <brand dir>]
 //                     [--no-burn]
 //
 // words.json: { words: [{ text, start, end }] } on the video's own timeline (reel-cutter writes reel.words.json).
@@ -30,8 +30,82 @@ const FONTS = {
   plex: { file: 'IBMPlexSansArabic_700Bold.ttf', family: 'IBM Plex Sans Arabic', bold: 1, size: 0.048 },
   tajawal: { file: 'Tajawal_900Black.ttf', family: 'Tajawal', bold: 1, size: 0.056 },
 };
-const font = FONTS[flags.font || 'cairo'];
-if (!font) { console.error(`--font must be one of ${Object.keys(FONTS).join(', ')}`); process.exit(1); }
+// Any TTF/OTF font: read its full name from the 'name' table (libass matches fonts by full name too).
+function fontFullName(file) {
+  const b = readFileSync(file);
+  const tag = b.toString('latin1', 0, 4);
+  if (tag === 'wOFF' || tag === 'wOF2') throw new Error(`${basename(file)} is a web font (WOFF); libass needs the .ttf or .otf file`);
+  const n = b.readUInt16BE(4);
+  let off = -1;
+  for (let i = 0; i < n; i++) { const r = 12 + i * 16; if (b.toString('latin1', r, r + 4) === 'name') { off = b.readUInt32BE(r + 8); break; } }
+  if (off < 0) throw new Error(`${basename(file)} has no name table`);
+  const count = b.readUInt16BE(off + 2), strOff = off + b.readUInt16BE(off + 4);
+  const found = {};
+  for (let i = 0; i < count; i++) {
+    const r = off + 6 + i * 12;
+    const plat = b.readUInt16BE(r), enc = b.readUInt16BE(r + 2), lang = b.readUInt16BE(r + 4), id = b.readUInt16BE(r + 6);
+    const len = b.readUInt16BE(r + 8), o = strOff + b.readUInt16BE(r + 10);
+    if (![1, 4, 16].includes(id)) continue;
+    let str;
+    if (plat === 3 || plat === 0) { const u = Buffer.from(b.subarray(o, o + len)); u.swap16(); str = u.toString('utf16le'); }
+    else if (plat === 1 && enc === 0) str = b.toString('latin1', o, o + len);
+    else continue;
+    const score = (plat === 3 && lang === 0x409) ? 2 : 1;
+    if (!found[id] || found[id].score < score) found[id] = { str, score };
+  }
+  const name = found[4]?.str || found[1]?.str;
+  if (!name) throw new Error(`no font name in ${basename(file)}`);
+  return name;
+}
+// Thmanyah (or any font named on --font) installed on the machine or kept next to the project.
+function findFont(pattern) {
+  const home = homedir();
+  const dirs = [process.cwd(), join(process.cwd(), 'fonts'), dirname(process.cwd()), join(dirname(process.cwd()), 'fonts'),
+    join(dirname(resolve(videoArg)), 'fonts'), dirname(resolve(videoArg)),
+    'C:\\Windows\\Fonts', join(process.env.LOCALAPPDATA || join(home, 'AppData', 'Local'), 'Microsoft', 'Windows', 'Fonts'),
+    join(home, 'Library', 'Fonts'), '/Library/Fonts', join(home, '.fonts'), join(home, '.local', 'share', 'fonts'), '/usr/share/fonts', join(home, 'Downloads')];
+  const hits = [], webOnly = [];
+  const scan = (d, depth) => {
+    let list; try { list = readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of list) {
+      const p = join(d, e.name);
+      if (e.isDirectory()) { if (depth > 0 && e.name !== '_fonts' && !e.name.startsWith('.')) scan(p, depth - 1); continue; }
+      if (!pattern.test(e.name)) continue;
+      if (/\.(ttf|otf)$/i.test(e.name)) hits.push(p); else if (/\.woff2?$/i.test(e.name)) webOnly.push(p);
+    }
+  };
+  for (const d of [...new Set(dirs)]) scan(d, 2);
+  const rank = f => { const n = basename(f).toLowerCase(); let r = 0;
+    if (/serif/.test(n)) r += 50; if (/display/.test(n)) r += 5;
+    const w = ['black', 'heavy', 'extrabold', 'bold', 'semibold', 'medium', 'regular', 'light'].findIndex(x => n.includes(x));
+    return r + (w < 0 ? 6 : w); };
+  const uniq = [...new Set(hits.map(f => resolve(f)))];
+  uniq.sort((a, b) => rank(a) - rank(b));
+  return { file: uniq[0] || null, all: uniq, webOnly: [...new Set(webOnly)] };
+}
+
+let font;
+if (flags['font-file'] || flags.font === 'thmanyah') {
+  let file = flags['font-file'] ? resolve(flags['font-file']) : null;
+  if (!file) {
+    const r = findFont(/thmanyah/i);
+    if (!r.file) {
+      console.error(r.webOnly.length
+        ? `Thmanyah found only as web fonts (${r.webOnly.map(f => basename(f)).join(', ')}). libass needs .ttf or .otf: pass one with --font-file.`
+        : 'Thmanyah font not found in the project, its fonts folder, Downloads or the system fonts. Pass its .ttf/.otf with --font-file <path>.');
+      process.exit(2);
+    }
+    file = r.file;
+    console.log(`Thmanyah files found: ${r.all.map(f => basename(f)).join(', ')}`);
+  }
+  if (!existsSync(file)) { console.error(`${file} not found`); process.exit(2); }
+  let family;
+  try { family = fontFullName(file); } catch (e) { console.error(e.message); process.exit(2); }
+  font = { path: file, file: basename(file), family, bold: 0, size: Number(flags.size) || 0.05 };
+} else {
+  font = FONTS[flags.font || 'cairo'];
+  if (!font) { console.error(`--font must be one of ${Object.keys(FONTS).join(', ')}, thmanyah, or use --font-file <path>`); process.exit(1); }
+}
 
 const video = resolve(videoArg), out = resolve(outArg);
 const probe = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height:format=duration', '-of', 'json', video], { encoding: 'utf8' });
@@ -118,7 +192,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 const lines = [];
 const srt = [];
-const px = Math.round(W / 2), py = Math.round(H * yFrac);
+const alignRight = flags.align === 'right';
+const px = alignRight ? Math.round(W * 0.92) : Math.round(W / 2), py = Math.round(H * yFrac);
+const an = alignRight ? 6 : 5;
 chunks.forEach((c, ci) => {
   const next = chunks[ci + 1];
   const cStart = c[0].start;
@@ -133,7 +209,7 @@ chunks.forEach((c, ci) => {
       ? `{\\c${ass(palette.accent)}\\fscx108\\fscy108}${x.text}{\\c${ass(palette.text)}\\fscx100\\fscy100}`
       : x.text).join(' ');
     const rtl = c.some(x => /[؀-ۿ]/.test(x.text)) ? '‏' : '';
-    lines.push(`Dialogue: 0,${t(s)},${t(e)},Cap,,0,0,0,,{\\an5\\pos(${px},${py})${enter}}${rtl}${body}`);
+    lines.push(`Dialogue: 0,${t(s)},${t(e)},Cap,,0,0,0,,{\\an${an}\\pos(${px},${py})${enter}}${rtl}${body}`);
   });
 });
 
@@ -141,7 +217,7 @@ const base = join(dirname(out), basename(out, extname(out)));
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(base + '.ass', '﻿' + header + lines.join('\n') + '\n');
 writeFileSync(base + '.srt', srt.join('\n'));
-console.log(`${words.length} words -> ${chunks.length} caption chunks, font ${font.family}, text #${palette.text} accent #${palette.accent} outline #${palette.outline}`);
+console.log(`${words.length} words -> ${chunks.length} caption chunks, font "${font.family}" (${font.file}), align ${alignRight ? 'right' : 'center'}, text #${palette.text} accent #${palette.accent} outline #${palette.outline}`);
 if (flags['no-burn']) { console.log(base + '.ass'); process.exit(0); }
 
 // Burn: run ffmpeg from the output folder with relative paths, which avoids Windows drive-letter escaping in filters.
@@ -149,6 +225,7 @@ const work = dirname(out);
 const fdir = join(work, '_fonts');
 mkdirSync(fdir, { recursive: true });
 for (const f of readdirSync(join(SKILL, 'fonts')).filter(f => f.endsWith('.ttf'))) copyFileSync(join(SKILL, 'fonts', f), join(fdir, f));
+if (font.path) copyFileSync(font.path, join(fdir, font.file));
 const r = spawnSync('ffmpeg', ['-v', 'error', '-stats', '-y', '-i', video, '-vf', `ass=${basename(base)}.ass:fontsdir=_fonts:shaping=complex`,
   '-c:v', 'libx264', '-preset', 'medium', '-crf', String(flags.crf || 18), '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart', basename(out)],
   { cwd: work, stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8' });

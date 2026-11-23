@@ -69,12 +69,12 @@ function findFont(pattern) {
     let list; try { list = readdirSync(d, { withFileTypes: true }); } catch { return; }
     for (const e of list) {
       const p = join(d, e.name);
-      if (e.isDirectory()) { if (depth > 0 && e.name !== '_fonts' && !e.name.startsWith('.')) scan(p, depth - 1); continue; }
-      if (!pattern.test(e.name)) continue;
+      if (e.isDirectory()) { if (depth > 0 && e.name !== '_fonts' && e.name !== '__MACOSX' && !e.name.startsWith('.')) scan(p, depth - 1); continue; }
+      if (e.name.startsWith('._') || !pattern.test(e.name)) continue;   // ._* are macOS metadata, not fonts
       if (/\.(ttf|otf)$/i.test(e.name)) hits.push(p); else if (/\.woff2?$/i.test(e.name)) webOnly.push(p);
     }
   };
-  for (const d of [...new Set(dirs)]) scan(d, 2);
+  for (const d of [...new Set(dirs)]) scan(d, 4);
   const rank = f => { const n = basename(f).toLowerCase(); let r = 0;
     if (/serif/.test(n)) r += 50; if (/display/.test(n)) r += 5;
     const w = ['black', 'heavy', 'extrabold', 'bold', 'semibold', 'medium', 'regular', 'light'].findIndex(x => n.includes(x));

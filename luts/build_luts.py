@@ -54,10 +54,9 @@ def smooth(x, a, b):
     return t * t * (3 - 2 * t)
 
 
-def tone(x, black, shoulder, contrast):
+def tone(x, black, shoulder, contrast, pivot=0.42):
     x = np.clip((x - black) / (1 - black), 0, None)
     x = x ** 1.08
-    pivot = 0.42
     lo = pivot * (x / pivot) ** contrast
     hi = 1 - (1 - pivot) * ((1 - np.minimum(x, 1)) / (1 - pivot)) ** contrast
     y = np.where(x < pivot, lo, hi)
@@ -65,7 +64,7 @@ def tone(x, black, shoulder, contrast):
     return y * shoulder
 
 
-def look(rgb, strength):
+def look(rgb, strength, pivot=0.42):
     s = strength
     rgb = np.clip(rgb, 0, 1)
 
@@ -87,10 +86,10 @@ def look(rgb, strength):
     contrast = 1 + 0.38 * s
     shoulder = 1 - 0.035 * s
     Y0 = luma(rgb)
-    Y1 = tone(Y0, black, shoulder, contrast)
+    Y1 = tone(Y0, black, shoulder, contrast, pivot)
     ratio = np.where(Y0 > 1e-5, Y1 / np.maximum(Y0, 1e-5), 0)[..., None]
     mapped = rgb * ratio
-    per_ch = tone(rgb, black, shoulder, contrast)
+    per_ch = tone(rgb, black, shoulder, contrast, pivot)
     rgb = mapped * 0.65 + per_ch * 0.35
 
     Y = luma(rgb)

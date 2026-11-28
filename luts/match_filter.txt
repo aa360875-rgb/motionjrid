@@ -1,0 +1,10 @@
+[0:v]scale=in_color_matrix=bt709:in_range=tv:out_range=pc,format=gbrp,split=4[a][b][c][d];
+[1:v]format=gbrp[vg];
+[a]split[a1][a2];
+[a1]deband=1thr=0.05:2thr=0.05:3thr=0.05:range=28:blur=1,lut3d=file=AliTech_Match_Footage.cube:interp=tetrahedral[gd];
+[a2]lut3d=file=AliTech_Match_Footage.cube:interp=tetrahedral[gn];
+[d]lut3d=file=wall_mask.cube:interp=tetrahedral,erosion,erosion,erosion,erosion,gblur=sigma=3[wm];
+[gn][gd][wm]maskedmerge[gm];
+[gm][vg]blend=all_mode=multiply[g];
+[b]lut3d=file=caption_mask.cube:interp=tetrahedral,gblur=sigma=1.2[mk];
+[g][c][mk]maskedmerge,noise=c0s=5:c1s=5:c2s=5:allf=t,scale=out_color_matrix=bt709:in_range=pc:out_range=tv,format=yuv420p[v]
